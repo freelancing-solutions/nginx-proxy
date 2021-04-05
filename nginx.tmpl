@@ -22,12 +22,14 @@ location {{ .Path }} {
 	{{ if eq .Proto "uwsgi" }}
 		include uwsgi_params;
 		uwsgi_pass {{ trim .Proto }}://{{ trim .Upstream }};
-	{{ else if eq (trim .Proto) "fastcgi" }}
-		root   {{ trim .VHostRoot }};
+	{{ else if eq .Proto "fastcgi" }}
+		root   {{ trim .Vhostroot }};
 		include fastcgi.conf;
 		fastcgi_pass {{ trim .Upstream }};
+	{{ else if eq .Proto "grpc" }}
+		grpc_pass {{ trim .Proto }}://{{ trim .Upstream }};
 	{{ else }}
-		proxy_pass {{ trim .Proto }}://{{ trim .Upstream }};
+		proxy_pass {{ trim .Proto }}://{{ trim .Upstream }}{{ trim .Dest }};
 	{{ end }}
 
 	{{ if (exists (printf "/etc/nginx/htpasswd/%s" .Host)) }}
@@ -37,6 +39,8 @@ location {{ .Path }} {
 
 	{{ if (exists (printf "/etc/nginx/vhost.d/%s_location" .Host)) }}
 		include {{ printf "/etc/nginx/vhost.d/%s_location" .Host}};
+	{{ else if (exists (printf "/etc/nginx/vhost.d/%s_%s_location" .Host (sha1 .Path))) }}
+		include {{ printf "/etc/nginx/vhost.d/%s_%s_location" .Host (sha1 .Path)}};
 	{{ else if (exists "/etc/nginx/vhost.d/default_location") }}
 		include /etc/nginx/vhost.d/default_location;
 	{{ end }}
@@ -114,6 +118,10 @@ log_format vhost '$host $remote_addr - $remote_user [$time_local] '
                  '"$http_referer" "$http_user_agent"';
 
 access_log off;
+
+{{/* Get the SSL_POLICY defined by this container, falling back to "Mozilla-Intermediate" */}}
+{{ $ssl_policy := or ($.Env.SSL_POLICY) "Mozilla-Intermediate" }}
+{{ template "ssl_policy" (dict "ssl_policy" $ssl_policy) }}
 error_log /dev/stderr;
 
 {{ if $.Env.RESOLVERS }}
@@ -313,12 +321,18 @@ server {
 	{{ end }}
 
 	{{ if eq $nPaths 0 }}
-		{{ template "location" (dict "Path" "/" "Proto" $proto "Upstream" $upstream_name "Host" $host "VHostRoot" $vhost_root) }}
+		{{ template "location" (dict "Path" "/" "Proto" $proto "Upstream" $upstream_name "Host" $host "VHostRoot" $vhost_root "Dest" "") }}
 	{{ else }}
-		{{ range $path, $containers := $paths }}
+		{{ range $path, $container := $paths }}
 			{{ $sum := sha1 $path }}
 			{{ $upstream := printf "%s-%s" $upstream_name $sum }}
-			{{ template "location" (dict "Path" $path "Proto" $proto "Upstream" $upstream "Host" $host "VHostRoot" $vhost_root) }}
+			{{ $dest := (or (first (groupByKeys $container "Env.VIRTUAL_DEST")) "") }}
+			{{ template "location" (dict "Path" $path "Proto" $proto "Upstream" $upstream "Host" $host "VHostRoot" $vhost_root "Dest" $dest) }}
+		{{ end }}
+		{{ if (not (contains $paths "/")) }}
+			location / {
+				return 503
+			}
 		{{ end }}
 	{{ end }}
 }
@@ -347,12 +361,18 @@ server {
 	{{ end }}
 
 	{{ if eq $nPaths 0 }}
-		{{ template "location" (dict "Path" "/" "Proto" $proto "Upstream" $upstream_name "Host" $host "VHostRoot" $vhost_root) }}
+		{{ template "location" (dict "Path" "/" "Proto" $proto "Upstream" $upstream_name "Host" $host "VHostRoot" $vhost_root "Dest" "") }}
 	{{ else }}
-		{{ range $path, $containers := $paths }}
+		{{ range $path, $container := $paths }}
 			{{ $sum := sha1 $path }}
 			{{ $upstream := printf "%s-%s" $upstream_name $sum }}
-			{{ template "location" (dict "Path" $path "Proto" $proto "Upstream" $upstream "Host" $host "VHostRoot" $vhost_root) }}
+			{{ $dest := (or (first (groupByKeys $container "Env.VIRTUAL_DEST")) "") }}
+			{{ template "location" (dict "Path" $path "Proto" $proto "Upstream" $upstream "Host" $host "VHostRoot" $vhost_root "Dest" $dest) }}
+		{{ end }}
+		{{ if (not (contains $paths "/")) }}
+			location / {
+				return 503
+			}
 		{{ end }}
 	{{ end }}
 }

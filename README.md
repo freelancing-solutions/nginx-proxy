@@ -66,6 +66,21 @@ You can activate the IPv6 support for the nginx-proxy container by passing the v
 
     $ docker run -d -p 80:80 -e ENABLE_IPV6=true -v /var/run/docker.sock:/tmp/docker.sock:ro jwilder/nginx-proxy
 
+### Path-based Routing
+
+You can proxy multiple containers on a single `VIRTUAL_HOST` by specifying a `VIRTUAL_PATH` environment variable. This will route requests to `http://CONTAINER/VIRTUAL_PATH` to this container.
+The optional environment variable `VIRTUAL_DEST` will modify the request URI to `http://CONTAINER/VIRTUAL_DEST` if necessary.
+
+The full request URI will be forwarded to the serving container in the `X-Original-URI` header.
+
+For example, if you want to run multiple containers on the same host name under different subdirectories, you can set it up as follows:
+
+    $ docker run -d -p 80:80 -v /var/run/docker.sock:/tmp/docker.sock:ro nginxproxy/nginx-proxy
+    $ docker run -d -name service1 -e VIRTUAL_HOST=example.tld -e VIRTUAL_PATH=/foo jwilder/whoami
+    $ docker run -d -name service2 -e VIRTUAL_HOST=example.tld -e VIRTUAL_PATH=/bar -e VIRTUAL_DEST=/ jwilder/whoami
+
+In this example, request to `http://example.tld/foo` are proxied to `http://service1/foo` and request to `http://example.tld/bar` to `http://service2/`.
+
 ### Multiple Ports
 
 If your container exposes multiple ports, nginx-proxy will default to the service running on port 80.  If you need to specify a different port, you can set a VIRTUAL_PORT env var to select a different one.  If your container only exposes one port and it has a VIRTUAL_HOST env var set, that port will be selected.
@@ -80,14 +95,6 @@ If you need to support multiple virtual hosts for a container, you can separate 
 ### Wildcard Hosts
 
 You can also use wildcards at the beginning and the end of host name, like `*.bar.com` or `foo.bar.*`. Or even a regular expression, which can be very useful in conjunction with a wildcard DNS service like [xip.io](http://xip.io), using `~^foo\.bar\..*\.xip\.io` will match `foo.bar.127.0.0.1.xip.io`, `foo.bar.10.0.2.2.xip.io` and all other given IPs. More information about this topic can be found in the nginx documentation about [`server_names`](http://nginx.org/en/docs/http/server_names.html).
-
-### Path-based Routing
-
-You can have multiple containers proxied by the same `VIRTUAL_HOST` by adding a `VIRTUAL_PATH` environment variable containing the absolute path to where the container should be mounted. For example with `VIRTUAL_HOST=foo.example.com` and `VIRTUAL_PATH=/api/v2/service`, then requests to http://foo.example.com/api/v2/service will be routed to the container. If you wish to have a container serve the root while other containers serve other paths, make give the root container a `VIRTUAL_PATH` of `/`.  Unmatched paths will be served by the container at `/` or will return the default nginx error page if no container has been assigned `/`.
-
-The full request URI will be forwarded to the serving container in the `X-Original-URI` header.
-
-When you want to forward many paths to the same container you can set the variable using a regular expresion. For example VIRTUAL_PATH="~^/(path1|path2)" will answer to requests that start with /path1 or /path2.
 
 ### Multiple Networks
 
@@ -140,7 +147,7 @@ If you would like to connect to FastCGI backend, set `VIRTUAL_PROTO=fastcgi` on 
 backend container. Your backend container should then listen on a port rather
 than a socket and expose that port.
 
-### FastCGI Filr Root Directory
+### FastCGI File Root Directory
 
 If you use fastcgi,you can set `VIRTUAL_ROOT=xxx`  for your root directory
 
@@ -394,6 +401,18 @@ If you are using multiple hostnames for a single container (e.g. `VIRTUAL_HOST=e
 
     $ { echo 'proxy_cache my-cache;'; echo 'proxy_cache_valid  200 302  60m;'; echo 'proxy_cache_valid  404 1m;' } > /path/to/vhost.d/app.example.com_location
     $ ln -s /path/to/vhost.d/www.example.com /path/to/vhost.d/example.com
+
+#### Per-VIRTUAL_HOST VIRTUAL_PATH location configuration
+
+To add settings to the "location" block on a per-`VIRTUAL_HOST/VIRTUAL_PATH` basis, add your configuration file under `/etc/nginx/vhost.d`
+just like the previous section except with the `_$(echo -n $VIRTUAL_PATH | sha1sum | awk '{ print $1 }')_location`
+
+For example, if you have a container proxied under `example.tld/hidden` and you want to add custon configuration to the location block, you could append it as follows:
+
+    $ docker run -d -p 80:80 -p 443:443 -v /path/to/vhost.d:/etc/nginx/vhost.d:ro -v /var/run/docker.sock:/tmp/docker.sock:ro nginxproxy/nginx-proxy
+    $ docker run -d -e VIRTUAL_HOST=example.tld -e VIRTUAL_PATH=/hidden jwilder/whoami
+    $ { echo '# custom config block' } > /path/to/vhost.d/example.tld_$(echo -n /hidden | sha1sum | awk '{ print $1 }')_location
+
 
 #### Per-VIRTUAL_HOST location default configuration
 
