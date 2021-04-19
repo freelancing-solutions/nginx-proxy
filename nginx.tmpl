@@ -331,7 +331,7 @@ server {
 		{{ end }}
 		{{ if (not (contains $paths "/")) }}
 			location / {
-				return 503
+				return 503;
 			}
 		{{ end }}
 	{{ end }}
@@ -371,7 +371,7 @@ server {
 		{{ end }}
 		{{ if (not (contains $paths "/")) }}
 			location / {
-				return 503
+				return 503;
 			}
 		{{ end }}
 	{{ end }}
