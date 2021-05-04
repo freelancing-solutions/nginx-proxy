@@ -39,6 +39,11 @@ jobs:
 
       - name: Build Docker nginx proxy test image
         run: make build-nginx-proxy-test-${{ matrix.base_docker_image }}
+        if: github.ref != 'ref/head/dev'
+
+      - name: Build Docker nginx proxy dev test image
+        run: make build-nginx-proxy-test-${{ matrix.base_docker_image }}-dev
+        if: github.ref == 'ref/head/dev'
 
       - name: Run tests
         run: pytest
